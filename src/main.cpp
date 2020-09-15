@@ -70,6 +70,9 @@ void mainTask(void* unused)
 void setup()
 {
     RemoteXY_Init();
+    while (1) {
+        RemoteXY_Handler();
+    }
 
     xTaskCreate(mainTask, "main", 128, NULL, 2, NULL);
 }
