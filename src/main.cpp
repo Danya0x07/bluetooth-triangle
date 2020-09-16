@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include <Arduino_FreeRTOS.h>
+#include <timers.h>
 #include <MAX30105.h>
+#include <heartRate.h>
 #include <avr/sleep.h>
 
 #include "config.h"
@@ -46,40 +48,97 @@ struct {
 
 MAX30105 pulseOximeter;
 
-void updateStrip(int8_t sliderValue, uint8_t pin)
+TaskHandle_t Handle_MeasureHeartRate;
+TimerHandle_t Handle_UpdateGUI;
+
+void setStripBrightnessFromSlider(int8_t sliderValue, uint8_t pin)
 {
     uint8_t value = map(sliderValue, 0, 100, 0, 0xFF);
     value = constrain(value, 0, 0xFF);
     analogWrite(pin, value);
 }
 
-void mainTask(void* unused)
+void Task_ProcessInput(void* arg __attribute__((unused)))
+{
+    bool pulseOximeterSwitchLast = false;
+    uint8_t redSliderLast = 0, greenSliderLast = 0, blueSliderLast = 0;
+
+    for (;;) {
+        if (RemoteXY.pulseOximeterSwitch != pulseOximeterSwitchLast) {
+            if (RemoteXY.pulseOximeterSwitch) {
+                pulseOximeter.wakeUp();
+                vTaskResume(Handle_MeasureHeartRate);
+            } else {
+                vTaskSuspend(Handle_MeasureHeartRate);
+                pulseOximeter.shutDown();
+            }
+            pulseOximeterSwitchLast = RemoteXY.pulseOximeterSwitch;
+        }
+
+        if (RemoteXY.redSlider != redSliderLast) {
+            if (pulseOximeterSwitchLast == false)
+                setStripBrightnessFromSlider(RemoteXY.redSlider, RED_STRIP_PIN);
+            redSliderLast = RemoteXY.redSlider;
+        }
+        if (RemoteXY.greenSlider != greenSliderLast) {
+            setStripBrightnessFromSlider(RemoteXY.greenSlider, GREEN_STRIP_PIN);
+            greenSliderLast = RemoteXY.greenSlider;
+        }
+        if (RemoteXY.blueSlider != blueSliderLast) {
+            setStripBrightnessFromSlider(RemoteXY.blueSlider, BLUE_STRIP_PIN);
+            blueSliderLast = RemoteXY.blueSlider;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+
+void Task_MeasureHeartRate(void* arg __attribute__((unused)))
 {
 
     for (;;) {
-        updateStrip(RemoteXY.redSlider, RED_STRIP_PIN);
-        updateStrip(RemoteXY.greenSlider, GREEN_STRIP_PIN);
-        updateStrip(RemoteXY.blueSlider, BLUE_STRIP_PIN);
+        int32_t irValue = pulseOximeter.getIR();
 
-        RemoteXY_Handler();
-
-        vTaskDelay(pdMS_TO_TICKS(100));
+        if (irValue < 50000) {
+            RemoteXY.pulseGraph = 0;
+        } else {
+            RemoteXY.pulseGraph = irValue;
+            if (checkForBeat(irValue)) {
+                analogWrite(RED_STRIP_PIN, 0xFF);
+            } else {
+                analogWrite(RED_STRIP_PIN, 0);
+            }
+        }
+        taskYIELD();
     }
+}
+
+void updateGUI(TimerHandle_t timer __attribute__((unused)))
+{
+    RemoteXY_Handler();
 }
 
 void setup()
 {
     RemoteXY_Init();
-    while (1) {
-        RemoteXY_Handler();
-    }
 
-    xTaskCreate(mainTask, "main", 128, NULL, 2, NULL);
+    if (!pulseOximeter.begin(Wire, I2C_SPEED_FAST)) {
+        digitalWrite(LED_BUILTIN, 1);
+        delay(2000);
+        digitalWrite(LED_BUILTIN, 0);
+    }
+    pulseOximeter.setup(0x1F, 4, 2, 400, 411, 4096);
+
+    xTaskCreate(Task_ProcessInput, "prcinp", 128, NULL, 2, NULL);
+    xTaskCreate(Task_MeasureHeartRate, "meashr", 128, NULL, 2, &Handle_MeasureHeartRate);
+
+    Handle_UpdateGUI = xTimerCreate("updtmr", pdMS_TO_TICKS(50), pdTRUE, NULL, updateGUI);
+    xTimerStart(Handle_UpdateGUI, 0);
 }
 
 void loop()  // вызывается планировщиком во время простоя
 {
-    set_sleep_mode(SLEEP_MODE_PWR_DOWN);
-    sleep_mode();
+    //set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+    //sleep_mode();
 }
 
