@@ -52,6 +52,7 @@ struct {
 MAX30105 pulseOximeter;
 
 TaskHandle_t Handle_MeasureHeartRate;
+TaskHandle_t Handle_ProcessInput;
 TimerHandle_t Handle_UpdateRemote;
 
 void setStripBrightnessFromSlider(int8_t sliderValue, uint8_t pin)
@@ -74,6 +75,7 @@ void Task_ProcessInput(void* arg __attribute__((unused)))
             } else {
                 vTaskSuspend(Handle_MeasureHeartRate);
                 pulseOximeter.shutDown();
+                RemoteXY.pulseGraph = 0;
             }
             pulseOximeterSwitchLast = RemoteXY.pulseOximeterSwitch;
         }
@@ -98,22 +100,39 @@ void Task_ProcessInput(void* arg __attribute__((unused)))
 
 void Task_MeasureHeartRate(void* arg __attribute__((unused)))
 {
+    TickType_t lastWakeTime = xTaskGetTickCount();
+    uint32_t irValue;
+    uint32_t beatDeltaTime = 0, lastBeatTime = 0;
+    uint16_t bpmAverage = 0;
+    uint8_t bpm = 0;
+    uint8_t beatSamples[4] = {0};
+    uint8_t idx = 0;
 
     for (;;) {
-        int32_t irValue = pulseOximeter.getIR();
+        irValue = pulseOximeter.getIR();
+        if (checkForBeat(irValue)) {
+            beatDeltaTime = millis() - lastBeatTime;
+            bpm = 60 / (beatDeltaTime / 1000.0);
+            lastBeatTime = millis();
 
-        if (irValue < 50000) {
-            RemoteXY.pulseGraph = 0;
-        } else {
-            RemoteXY.pulseGraph = irValue;
-            if (checkForBeat(irValue)) {
-                analogWrite(RED_STRIP_PIN, 0xFF);
-            } else {
-                analogWrite(RED_STRIP_PIN, 0);
+            if (bpm > 20 && bpm < 255) {
+                beatSamples[idx++] = (uint8_t)bpm;
+                idx &= 3;
             }
+
+            bpmAverage = 0;
+            for (uint8_t i = 0; i < 4; i++)
+                bpmAverage += beatSamples[i];
+            bpmAverage >>= 2;
+
+            analogWrite(RED_STRIP_PIN, 0xFF);
+            vTaskDelay(pdMS_TO_TICKS(15));
+        } else {
+            analogWrite(RED_STRIP_PIN, 0);
         }
-        vTaskDelay(pdMS_TO_TICKS(15));
-        //taskYIELD();
+        RemoteXY.pulseGraph = irValue >= 50000 ? bpmAverage : 0;
+
+        vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(30));
     }
 }
 
@@ -137,9 +156,11 @@ void setup()
     pulseOximeter.setup(0x1F, 4, 2, 400, 411, 4096);
     pulseOximeter.shutDown();
 
-    xTaskCreate(Task_ProcessInput, "prcinp", 128, NULL, 3, NULL);
-    xTaskCreate(Task_MeasureHeartRate, "meashr", 128, NULL, 2,
+    xTaskCreate(Task_ProcessInput, "prcinp", 128, NULL, 2,
+                &Handle_ProcessInput);
+    xTaskCreate(Task_MeasureHeartRate, "meashr", 128, NULL, 1,
                 &Handle_MeasureHeartRate);
+    vTaskSuspend(Handle_MeasureHeartRate);
 
     Handle_UpdateRemote = xTimerCreate("updtmr", pdMS_TO_TICKS(45), pdTRUE,
                                        NULL, updateRemote);
