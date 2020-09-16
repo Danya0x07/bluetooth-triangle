@@ -47,9 +47,9 @@
 #define configUSE_IDLE_HOOK                 1
 #define configUSE_TICK_HOOK                 0
 #define configCPU_CLOCK_HZ                  ( ( uint32_t ) F_CPU )          // This F_CPU variable set by the environment
-#define configMAX_PRIORITIES                4
+#define configMAX_PRIORITIES                3
 #define configMINIMAL_STACK_SIZE            ( 192 )
-#define configMAX_TASK_NAME_LEN             ( 6 )
+#define configMAX_TASK_NAME_LEN             (7)
 #define configUSE_TRACE_FACILITY            0
 #define configUSE_16_BIT_TICKS              1
 #define configIDLE_SHOULD_YIELD             1
@@ -68,7 +68,7 @@
 
 /* Timer definitions. */
 #define configUSE_TIMERS                    1
-#define configTIMER_TASK_PRIORITY           ( ( UBaseType_t ) 3 )
+#define configTIMER_TASK_PRIORITY           ( ( UBaseType_t ) 2 )
 #define configTIMER_QUEUE_LENGTH            ( ( UBaseType_t ) 10 )
 #define configTIMER_TASK_STACK_DEPTH        ( 85 )
 

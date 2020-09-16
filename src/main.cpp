@@ -4,8 +4,11 @@
 #include <MAX30105.h>
 #include <heartRate.h>
 #include <avr/sleep.h>
+#include <avr/power.h>
 
-#include "config.h"
+#define RED_STRIP_PIN   5
+#define GREEN_STRIP_PIN   3
+#define BLUE_STRIP_PIN   6
 
 // определение режима соединения и подключение библиотеки RemoteXY
 #define REMOTEXY_MODE__HARDSERIAL
@@ -49,7 +52,7 @@ struct {
 MAX30105 pulseOximeter;
 
 TaskHandle_t Handle_MeasureHeartRate;
-TimerHandle_t Handle_UpdateGUI;
+TimerHandle_t Handle_UpdateRemote;
 
 void setStripBrightnessFromSlider(int8_t sliderValue, uint8_t pin)
 {
@@ -89,7 +92,7 @@ void Task_ProcessInput(void* arg __attribute__((unused)))
             blueSliderLast = RemoteXY.blueSlider;
         }
 
-        vTaskDelay(pdMS_TO_TICKS(50));
+        vTaskDelay(pdMS_TO_TICKS(60));
     }
 }
 
@@ -109,17 +112,21 @@ void Task_MeasureHeartRate(void* arg __attribute__((unused)))
                 analogWrite(RED_STRIP_PIN, 0);
             }
         }
-        taskYIELD();
+        vTaskDelay(pdMS_TO_TICKS(15));
+        //taskYIELD();
     }
 }
 
-void updateGUI(TimerHandle_t timer __attribute__((unused)))
+void updateRemote(TimerHandle_t timer __attribute__((unused)))
 {
     RemoteXY_Handler();
 }
 
 void setup()
 {
+    power_adc_disable();
+    power_spi_disable();
+
     RemoteXY_Init();
 
     if (!pulseOximeter.begin(Wire, I2C_SPEED_FAST)) {
@@ -128,17 +135,19 @@ void setup()
         digitalWrite(LED_BUILTIN, 0);
     }
     pulseOximeter.setup(0x1F, 4, 2, 400, 411, 4096);
+    pulseOximeter.shutDown();
 
-    xTaskCreate(Task_ProcessInput, "prcinp", 128, NULL, 2, NULL);
-    xTaskCreate(Task_MeasureHeartRate, "meashr", 128, NULL, 2, &Handle_MeasureHeartRate);
+    xTaskCreate(Task_ProcessInput, "prcinp", 128, NULL, 3, NULL);
+    xTaskCreate(Task_MeasureHeartRate, "meashr", 128, NULL, 2,
+                &Handle_MeasureHeartRate);
 
-    Handle_UpdateGUI = xTimerCreate("updtmr", pdMS_TO_TICKS(50), pdTRUE, NULL, updateGUI);
-    xTimerStart(Handle_UpdateGUI, 0);
+    Handle_UpdateRemote = xTimerCreate("updtmr", pdMS_TO_TICKS(45), pdTRUE,
+                                       NULL, updateRemote);
+    xTimerStart(Handle_UpdateRemote, 0);
 }
 
 void loop()  // вызывается планировщиком во время простоя
 {
-    //set_sleep_mode(SLEEP_MODE_PWR_DOWN);
-    //sleep_mode();
+    set_sleep_mode(SLEEP_MODE_IDLE);
+    sleep_mode();
 }
-
