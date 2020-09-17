@@ -54,6 +54,7 @@ MAX30105 pulseOximeter;
 TaskHandle_t Handle_MeasureHeartRate;
 TaskHandle_t Handle_ProcessInput;
 TimerHandle_t Handle_UpdateRemote;
+TimerHandle_t Handle_PulseLightGoOut;
 
 void setStripBrightnessFromSlider(int8_t sliderValue, uint8_t pin)
 {
@@ -126,19 +127,22 @@ void Task_MeasureHeartRate(void* arg __attribute__((unused)))
             bpmAverage >>= 2;
 
             analogWrite(RED_STRIP_PIN, 0xFF);
-            vTaskDelay(pdMS_TO_TICKS(15));
-        } else {
-            analogWrite(RED_STRIP_PIN, 0);
+            xTimerReset(Handle_PulseLightGoOut, 0);
         }
         RemoteXY.pulseGraph = irValue >= 50000 ? bpmAverage : 0;
 
-        vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(30));
+        vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(15));
     }
 }
 
 void updateRemote(TimerHandle_t timer __attribute__((unused)))
 {
     RemoteXY_Handler();
+}
+
+void pulseLightGoOut(TimerHandle_t timer __attribute__((unused)))
+{
+    analogWrite(RED_STRIP_PIN, 0);
 }
 
 void setup()
@@ -164,6 +168,8 @@ void setup()
 
     Handle_UpdateRemote = xTimerCreate("updtmr", pdMS_TO_TICKS(45), pdTRUE,
                                        NULL, updateRemote);
+    Handle_PulseLightGoOut = xTimerCreate("plsgo", pdMS_TO_TICKS(200), pdFALSE,
+                                          NULL, pulseLightGoOut);
     xTimerStart(Handle_UpdateRemote, 0);
 }
 
